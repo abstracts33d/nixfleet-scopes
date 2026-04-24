@@ -55,9 +55,12 @@ in {
       };
     };
 
-    # Optional bootstrap admin creation on first start.
+    # Optional bootstrap admin creation on first start, plus declarative
+    # SSH-key registration on every start (idempotent — Forgejo dedupes
+    # by fingerprint).
     systemd.services.forgejo = lib.mkIf (cfg.admin.userFile != null) {
       preStart = lib.mkAfter ''
+        admin_user=""
         if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
           if [ -r ${cfg.admin.userFile} ]; then
             IFS=: read -r admin_user admin_email admin_pass < ${cfg.admin.userFile}
@@ -69,6 +72,94 @@ in {
             touch ${cfg.dataDir}/.nixfleet-admin-created
           fi
         fi
+
+        ${lib.optionalString (cfg.admin.sshKeyFiles != []) ''
+          # Register declared SSH keys on the admin account. Re-read the
+          # admin username from userFile in case the admin was created on
+          # a previous run (marker already existed).
+          if [ -z "$admin_user" ] && [ -r ${cfg.admin.userFile} ]; then
+            IFS=: read -r admin_user _ _ < ${cfg.admin.userFile}
+          fi
+          if [ -n "$admin_user" ]; then
+            ${lib.concatMapStringsSep "\n" (keyFile: ''
+              if [ -r ${keyFile} ]; then
+                key_content="$(cat ${keyFile})"
+                if [ -n "$key_content" ]; then
+                  echo "forge: registering SSH key ${keyFile} for $admin_user" >&2
+                  # add-ssh-key is idempotent on the Forgejo side (fingerprint
+                  # dedupe). Errors are non-fatal to avoid blocking service start.
+                  ${pkgs.forgejo}/bin/forgejo admin user add-ssh-key \
+                    --username "$admin_user" \
+                    --key "$key_content" \
+                    || echo "forge: add-ssh-key failed for ${keyFile} (continuing)" >&2
+                fi
+              else
+                echo "forge: SSH key file ${keyFile} not readable, skipping" >&2
+              fi
+            '')
+            cfg.admin.sshKeyFiles}
+          else
+            echo "forge: admin user unknown, skipping sshKeyFiles registration" >&2
+          fi
+        ''}
+      '';
+    };
+
+    # Declarative repository pre-creation. Runs after forgejo.service is
+    # active, gated on the admin-created marker (bounded wait to avoid
+    # hanging on a genuinely broken bootstrap).
+    #
+    # TODO(v2): extend the submodule + this unit with pullMirror support
+    # (upstream URL + auth) so declared repos can be pull-mirrors of
+    # external sources. Out of scope for v1.
+    systemd.services.forgejo-repositories = lib.mkIf (cfg.repositories != []) {
+      description = "Declarative Forgejo repository pre-creation";
+      after = ["forgejo.service"];
+      wants = ["forgejo.service"];
+      wantedBy = ["multi-user.target"];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        User = "forgejo";
+        Group = "forgejo";
+      };
+
+      script = ''
+        set -u
+
+        # Gate: wait (bounded) for the admin-created marker. The marker is
+        # written by forgejo.service preStart after `admin user create`.
+        waited=0
+        while [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; do
+          if [ $waited -ge 60 ]; then
+            echo "forge-repositories: admin marker missing after 60s, aborting" >&2
+            exit 0
+          fi
+          sleep 1
+          waited=$((waited + 1))
+        done
+
+        ${lib.concatMapStringsSep "\n" (repo: let
+            privateFlag =
+              if repo.private
+              then "--private"
+              else "";
+          in ''
+            if [ -d ${cfg.dataDir}/repositories/${repo.owner}/${repo.name}.git ]; then
+              echo "forge-repositories: ${repo.owner}/${repo.name} already exists, skipping" >&2
+            else
+              echo "forge-repositories: creating ${repo.owner}/${repo.name}" >&2
+              ${pkgs.forgejo}/bin/forgejo admin repo create \
+                --owner ${lib.escapeShellArg repo.owner} \
+                --name ${lib.escapeShellArg repo.name} \
+                --description ${lib.escapeShellArg repo.description} \
+                --default-branch ${lib.escapeShellArg repo.defaultBranch} \
+                ${privateFlag} \
+                || echo "forge-repositories: create failed for ${repo.owner}/${repo.name} (continuing)" >&2
+            fi
+          '')
+          cfg.repositories}
       '';
     };
 
