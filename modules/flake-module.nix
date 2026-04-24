@@ -63,6 +63,13 @@
     syncthing = ./scopes/syncthing;
     syncthingDarwin = ./scopes/syncthing/darwin.nix;
     graphical-base = ./scopes/graphical-base;
+    tpm-keyslot = ./scopes/tpm-keyslot;
+    forge = ./scopes/forge;
+    attic-server = ./scopes/attic-server;
+    ci-runner = ./scopes/ci-runner;
+    reverse-proxy = ./scopes/reverse-proxy;
+    backup-server = ./scopes/backup-server;
+    coordinator = ./scopes/coordinator;
 
     platform = {
       nixos-base = ./platform/nixos-base.nix;
@@ -106,6 +113,13 @@
     samba-client = ./scopes/samba-client;
     syncthing = ./scopes/syncthing;
     graphical-base = ./scopes/graphical-base;
+    tpm-keyslot = ./scopes/tpm-keyslot;
+    forge = ./scopes/forge;
+    attic-server = ./scopes/attic-server;
+    ci-runner = ./scopes/ci-runner;
+    reverse-proxy = ./scopes/reverse-proxy;
+    backup-server = ./scopes/backup-server;
+    coordinator = ./scopes/coordinator;
 
     role-server = ./roles/server.nix;
     role-workstation = ./roles/workstation.nix;
