@@ -32,5 +32,18 @@
       default = "tpm-sign";
       description = "Name of the shell wrapper installed system-wide that signs a file with the TPM-held key.";
     };
+
+    signWrapperPackage = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      description = ''
+        Read-only: the signing-wrapper derivation the scope builds for
+        `signWrapperName`. Exposed so consumers can reference the
+        derivation directly (e.g. to extend a CI runner's
+        `systemd.services.<name>.path`) rather than going through
+        `/run/current-system/sw/bin/<name>` and wrapping with
+        `writeShellScriptBin`.
+      '';
+    };
   };
 }
