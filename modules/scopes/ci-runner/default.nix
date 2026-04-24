@@ -55,6 +55,20 @@ in {
         };
       };
 
+      # Give the runner (and its subprocess shells) access to Nix and
+      # every tool installed via environment.systemPackages. Without
+      # this, `runs-on: native` workflows that invoke `nix`, `git`,
+      # `jq`, `attic`, etc. fail with "command not found" — systemd
+      # defaults to a minimal PATH that only contains the runner's
+      # own binary directory.
+      #
+      #   /run/wrappers/bin                   — setuid wrappers
+      #   /nix/var/nix/profiles/default/bin   — multi-user Nix default profile
+      #   /run/current-system/sw/bin          — everything in environment.systemPackages
+      systemd.services.gitea-runner-nixfleet.serviceConfig.Environment = [
+        "PATH=/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
+      ];
+
       environment.persistence."/persist".directories =
         lib.mkIf (config.nixfleet.impermanence.enable or false)
         ["/var/lib/gitea-runner-nixfleet"];
