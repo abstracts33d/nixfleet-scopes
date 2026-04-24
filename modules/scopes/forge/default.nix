@@ -105,6 +105,64 @@ in {
       '';
     };
 
+    # Declarative repository pre-creation. Runs after forgejo.service is
+    # active, gated on the admin-created marker (bounded wait to avoid
+    # hanging on a genuinely broken bootstrap).
+    #
+    # TODO(v2): extend the submodule + this unit with pullMirror support
+    # (upstream URL + auth) so declared repos can be pull-mirrors of
+    # external sources. Out of scope for v1.
+    systemd.services.forgejo-repositories = lib.mkIf (cfg.repositories != []) {
+      description = "Declarative Forgejo repository pre-creation";
+      after = ["forgejo.service"];
+      wants = ["forgejo.service"];
+      wantedBy = ["multi-user.target"];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        User = "forgejo";
+        Group = "forgejo";
+      };
+
+      script = ''
+        set -u
+
+        # Gate: wait (bounded) for the admin-created marker. The marker is
+        # written by forgejo.service preStart after `admin user create`.
+        waited=0
+        while [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; do
+          if [ $waited -ge 60 ]; then
+            echo "forge-repositories: admin marker missing after 60s, aborting" >&2
+            exit 0
+          fi
+          sleep 1
+          waited=$((waited + 1))
+        done
+
+        ${lib.concatMapStringsSep "\n" (repo: let
+            privateFlag =
+              if repo.private
+              then "--private"
+              else "";
+          in ''
+            if [ -d ${cfg.dataDir}/repositories/${repo.owner}/${repo.name}.git ]; then
+              echo "forge-repositories: ${repo.owner}/${repo.name} already exists, skipping" >&2
+            else
+              echo "forge-repositories: creating ${repo.owner}/${repo.name}" >&2
+              ${pkgs.forgejo}/bin/forgejo admin repo create \
+                --owner ${lib.escapeShellArg repo.owner} \
+                --name ${lib.escapeShellArg repo.name} \
+                --description ${lib.escapeShellArg repo.description} \
+                --default-branch ${lib.escapeShellArg repo.defaultBranch} \
+                ${privateFlag} \
+                || echo "forge-repositories: create failed for ${repo.owner}/${repo.name} (continuing)" >&2
+            fi
+          '')
+          cfg.repositories}
+      '';
+    };
+
     # Forgejo's integrated SSH server binds cfg.ssh.port as the
     # unprivileged `forgejo` user. Ports <1024 are privileged by default.
     # The NixOS forgejo module sets NoNewPrivileges=true, which prevents

@@ -135,5 +135,50 @@ in {
         example = ["/run/agenix/operators/s33d-forgejo-sshkey"];
       };
     };
+
+    repositories = lib.mkOption {
+      type = types.listOf (types.submodule {
+        options = {
+          owner = lib.mkOption {
+            type = types.str;
+            description = "Forgejo user or organization that owns the repository. MUST already exist as a Forgejo user — typically created via `admin.userFile`.";
+          };
+          name = lib.mkOption {
+            type = types.str;
+            description = "Repository name (the path segment after the owner).";
+          };
+          description = lib.mkOption {
+            type = types.str;
+            default = "";
+            description = "Optional repository description.";
+          };
+          private = lib.mkOption {
+            type = types.bool;
+            default = false;
+            description = "Create the repository as private.";
+          };
+          defaultBranch = lib.mkOption {
+            type = types.str;
+            default = "main";
+            description = "Default branch name.";
+          };
+        };
+      });
+      default = [];
+      description = ''
+        Repositories to ensure exist on this Forgejo instance. Created
+        once after the admin user exists; idempotent on subsequent
+        deploys (existing repos are skipped). The declared owner MUST
+        already exist as a Forgejo user — typically `admin.userFile`
+        created them.
+      '';
+      example = [
+        {
+          owner = "s33d";
+          name = "fleet";
+          description = "NixOS fleet config";
+        }
+      ];
+    };
   };
 }
