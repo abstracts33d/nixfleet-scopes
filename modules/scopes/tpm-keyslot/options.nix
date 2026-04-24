@@ -1,7 +1,7 @@
 # TPM keyslot scope — option declarations.
 {lib, ...}: {
   options.nixfleet.tpmKeyslot = {
-    enable = lib.mkEnableOption "TPM2-backed ed25519 keyslot provisioned at first boot";
+    enable = lib.mkEnableOption "TPM2-backed signing keyslot provisioned at first boot";
 
     handle = lib.mkOption {
       type = lib.types.str;
@@ -10,9 +10,15 @@
     };
 
     algorithm = lib.mkOption {
-      type = lib.types.enum ["ed25519"];
-      default = "ed25519";
-      description = "Signing algorithm. Currently only ed25519 is supported.";
+      type = lib.types.enum ["ecdsa-p256" "ed25519"];
+      default = "ecdsa-p256";
+      description = ''
+        Signing algorithm. Commodity TPM2 hardware (Intel PTT, AMD fTPM,
+        most discrete TPMs) supports RSA + ECDSA P-256 but not ed25519
+        (TPM ECC curve 0x0040 is rare). Use ecdsa-p256 for TPM-backed
+        signing; use ed25519 only if the TPM advertises that curve
+        (check with `tpm2_getcap ecc-curves`).
+      '';
     };
 
     exportPubkeyDir = lib.mkOption {
