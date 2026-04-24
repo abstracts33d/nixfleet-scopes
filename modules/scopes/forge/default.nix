@@ -56,9 +56,16 @@ in {
     };
 
     # Optional bootstrap admin creation on first start, plus declarative
-    # SSH-key registration on every start (idempotent — Forgejo dedupes
-    # by fingerprint).
+    # SSH-key registration on every start via the Forgejo HTTP API.
+    #
+    # Why API, not CLI: Forgejo LTS 11 (and earlier) has no
+    # `admin user add-ssh-key` CLI subcommand — that was added in later
+    # majors. The HTTP API surface is stable across versions, so we
+    # generate a bootstrap access token once (via the CLI, which does
+    # have `admin user generate-access-token`) and use it for both the
+    # SSH-key loop here and the repositories oneshot below.
     systemd.services.forgejo = lib.mkIf (cfg.admin.userFile != null) {
+      path = [pkgs.curl pkgs.jq pkgs.gnugrep pkgs.coreutils];
       preStart = lib.mkAfter ''
         admin_user=""
         if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
@@ -73,25 +80,56 @@ in {
           fi
         fi
 
-        ${lib.optionalString (cfg.admin.sshKeyFiles != []) ''
-          # Register declared SSH keys on the admin account. Re-read the
-          # admin username from userFile in case the admin was created on
-          # a previous run (marker already existed).
-          if [ -z "$admin_user" ] && [ -r ${cfg.admin.userFile} ]; then
-            IFS=: read -r admin_user _ _ < ${cfg.admin.userFile}
+        # Ensure admin_user is set for downstream steps, re-reading if
+        # the marker-skipped branch above didn't populate it.
+        if [ -z "$admin_user" ] && [ -r ${cfg.admin.userFile} ]; then
+          IFS=: read -r admin_user _ _ < ${cfg.admin.userFile}
+        fi
+
+        # Bootstrap API token. Generated once; reused for every later
+        # API call in this scope (SSH keys, repos). The file is
+        # forgejo:forgejo 0600 — never exposed outside the service.
+        token_file=${cfg.dataDir}/.nixfleet-bootstrap-token
+        if [ -n "$admin_user" ] && [ ! -f "$token_file" ]; then
+          # generate-access-token prints a line like
+          #   "Access token was successfully created: <40-hex>"
+          # Parse the 40-hex-char token out of stdout.
+          token=$(${pkgs.forgejo}/bin/forgejo admin user generate-access-token \
+            --username "$admin_user" \
+            --token-name nixfleet-bootstrap \
+            --scopes "write:admin,write:repository,write:user" 2>&1 \
+            | grep -oE '[0-9a-f]{40}' | head -1) || true
+          if [ -n "$token" ]; then
+            umask 077
+            printf '%s' "$token" > "$token_file"
           fi
-          if [ -n "$admin_user" ]; then
+        fi
+
+        ${lib.optionalString (cfg.admin.sshKeyFiles != []) ''
+          if [ -n "$admin_user" ] && [ -f "$token_file" ]; then
+            token=$(cat "$token_file")
             ${lib.concatMapStringsSep "\n" (keyFile: ''
               if [ -r ${keyFile} ]; then
                 key_content="$(cat ${keyFile})"
                 if [ -n "$key_content" ]; then
                   echo "forge: registering SSH key ${keyFile} for $admin_user" >&2
-                  # add-ssh-key is idempotent on the Forgejo side (fingerprint
-                  # dedupe). Errors are non-fatal to avoid blocking service start.
-                  ${pkgs.forgejo}/bin/forgejo admin user add-ssh-key \
-                    --username "$admin_user" \
-                    --key "$key_content" \
-                    || echo "forge: add-ssh-key failed for ${keyFile} (continuing)" >&2
+                  # POST /api/v1/admin/users/<name>/keys — 201 Created
+                  # on success, 422 Unprocessable Entity on duplicate
+                  # fingerprint. Both are accepted as "already in
+                  # good state."
+                  body=$(jq -nc \
+                    --arg title "nixfleet-bootstrap-$(basename ${keyFile} .pub)" \
+                    --arg key "$key_content" \
+                    '{title: $title, key: $key}')
+                  status=$(curl -s -o /dev/null -w '%{http_code}' \
+                    -H "Authorization: token $token" \
+                    -H "Content-Type: application/json" \
+                    -d "$body" \
+                    "http://127.0.0.1:${toString cfg.http.port}/api/v1/admin/users/$admin_user/keys") || status=0
+                  case "$status" in
+                    201|422) echo "forge: add-ssh-key ${keyFile} -> HTTP $status (ok)" >&2 ;;
+                    *) echo "forge: add-ssh-key ${keyFile} -> HTTP $status (failed)" >&2 ;;
+                  esac
                 fi
               else
                 echo "forge: SSH key file ${keyFile} not readable, skipping" >&2
@@ -99,15 +137,16 @@ in {
             '')
             cfg.admin.sshKeyFiles}
           else
-            echo "forge: admin user unknown, skipping sshKeyFiles registration" >&2
+            echo "forge: admin or bootstrap token unavailable, skipping sshKeyFiles" >&2
           fi
         ''}
       '';
     };
 
     # Declarative repository pre-creation. Runs after forgejo.service is
-    # active, gated on the admin-created marker (bounded wait to avoid
-    # hanging on a genuinely broken bootstrap).
+    # active, gated on the admin-created marker and the bootstrap token.
+    # Uses the Forgejo HTTP API (`admin repo create` CLI subcommand
+    # does not exist on LTS 11).
     #
     # TODO(v2): extend the submodule + this unit with pullMirror support
     # (upstream URL + auth) so declared repos can be pull-mirrors of
@@ -117,6 +156,7 @@ in {
       after = ["forgejo.service"];
       wants = ["forgejo.service"];
       wantedBy = ["multi-user.target"];
+      path = [pkgs.curl pkgs.jq pkgs.coreutils];
 
       serviceConfig = {
         Type = "oneshot";
@@ -128,35 +168,47 @@ in {
       script = ''
         set -u
 
-        # Gate: wait (bounded) for the admin-created marker. The marker is
-        # written by forgejo.service preStart after `admin user create`.
+        # Gate: wait (bounded) for the admin-created marker AND the
+        # bootstrap token. Both are written by forgejo.service preStart.
         waited=0
-        while [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; do
+        while [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ] \
+           || [ ! -f ${cfg.dataDir}/.nixfleet-bootstrap-token ]; do
           if [ $waited -ge 60 ]; then
-            echo "forge-repositories: admin marker missing after 60s, aborting" >&2
+            echo "forge-repositories: admin marker or token missing after 60s, aborting" >&2
             exit 0
           fi
           sleep 1
           waited=$((waited + 1))
         done
+        token=$(cat ${cfg.dataDir}/.nixfleet-bootstrap-token)
 
-        ${lib.concatMapStringsSep "\n" (repo: let
-            privateFlag =
-              if repo.private
-              then "--private"
-              else "";
-          in ''
+        ${lib.concatMapStringsSep "\n" (repo: ''
             if [ -d ${cfg.dataDir}/repositories/${repo.owner}/${repo.name}.git ]; then
               echo "forge-repositories: ${repo.owner}/${repo.name} already exists, skipping" >&2
             else
               echo "forge-repositories: creating ${repo.owner}/${repo.name}" >&2
-              ${pkgs.forgejo}/bin/forgejo admin repo create \
-                --owner ${lib.escapeShellArg repo.owner} \
-                --name ${lib.escapeShellArg repo.name} \
-                --description ${lib.escapeShellArg repo.description} \
-                --default-branch ${lib.escapeShellArg repo.defaultBranch} \
-                ${privateFlag} \
-                || echo "forge-repositories: create failed for ${repo.owner}/${repo.name} (continuing)" >&2
+              # POST /api/v1/admin/users/<owner>/repos — 201 Created on
+              # success. 422 (duplicate) is treated as "already ok" even
+              # though the on-disk check above should have caught it.
+              body=$(jq -nc \
+                --arg name ${lib.escapeShellArg repo.name} \
+                --arg desc ${lib.escapeShellArg repo.description} \
+                --arg branch ${lib.escapeShellArg repo.defaultBranch} \
+                --argjson private ${
+              if repo.private
+              then "true"
+              else "false"
+            } \
+                '{name: $name, description: $desc, default_branch: $branch, private: $private, auto_init: false}')
+              status=$(curl -s -o /dev/null -w '%{http_code}' \
+                -H "Authorization: token $token" \
+                -H "Content-Type: application/json" \
+                -d "$body" \
+                "http://127.0.0.1:${toString cfg.http.port}/api/v1/admin/users/${repo.owner}/repos") || status=0
+              case "$status" in
+                201|422) echo "forge-repositories: ${repo.owner}/${repo.name} -> HTTP $status (ok)" >&2 ;;
+                *) echo "forge-repositories: ${repo.owner}/${repo.name} -> HTTP $status (failed)" >&2 ;;
+              esac
             fi
           '')
           cfg.repositories}
