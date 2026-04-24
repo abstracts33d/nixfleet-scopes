@@ -64,6 +64,19 @@ in {
           mechanism (bastion, Tailscale, etc.).
         '';
       };
+      user = lib.mkOption {
+        type = types.str;
+        default = "git";
+        description = ''
+          SSH username clients connect as — typically `git@` per the
+          Forgejo/Gitea/GitHub/GitLab convention. Forgejo's NixOS
+          module defaults this to the service user (`forgejo`), which
+          breaks muscle memory for everyone who's ever cloned a repo.
+          Override here so `git@forge-host:owner/repo.git` works out of
+          the box. Not a system user — just a magic string Forgejo
+          matches on incoming SSH auth.
+        '';
+      };
     };
 
     actions = {
