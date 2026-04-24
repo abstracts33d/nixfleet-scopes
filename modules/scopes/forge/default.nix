@@ -105,46 +105,88 @@ in {
           fi
         fi
 
-        ${lib.optionalString (cfg.admin.sshKeyFiles != []) ''
-          if [ -n "$admin_user" ] && [ -f "$token_file" ]; then
-            token=$(cat "$token_file")
-            ${lib.concatMapStringsSep "\n" (keyFile: ''
-              if [ -r ${keyFile} ]; then
-                key_content="$(cat ${keyFile})"
-                if [ -n "$key_content" ]; then
-                  echo "forge: registering SSH key ${keyFile} for $admin_user" >&2
-                  # POST /api/v1/admin/users/<name>/keys — 201 Created
-                  # on success, 422 Unprocessable Entity on duplicate
-                  # fingerprint. Both are accepted as "already in
-                  # good state."
-                  body=$(jq -nc \
-                    --arg title "nixfleet-bootstrap-$(basename ${keyFile} .pub)" \
-                    --arg key "$key_content" \
-                    '{title: $title, key: $key}')
-                  status=$(curl -s -o /dev/null -w '%{http_code}' \
-                    -H "Authorization: token $token" \
-                    -H "Content-Type: application/json" \
-                    -d "$body" \
-                    "http://127.0.0.1:${toString cfg.http.port}/api/v1/admin/users/$admin_user/keys") || status=0
-                  case "$status" in
-                    201|422) echo "forge: add-ssh-key ${keyFile} -> HTTP $status (ok)" >&2 ;;
-                    *) echo "forge: add-ssh-key ${keyFile} -> HTTP $status (failed)" >&2 ;;
-                  esac
-                fi
-              else
-                echo "forge: SSH key file ${keyFile} not readable, skipping" >&2
-              fi
-            '')
-            cfg.admin.sshKeyFiles}
-          else
-            echo "forge: admin or bootstrap token unavailable, skipping sshKeyFiles" >&2
+        # NOTE: sshKeyFiles registration moved to forgejo-ssh-keys.service
+        # because the HTTP API it calls isn't reachable during preStart
+        # (forgejo's HTTP listener only comes up after preStart returns).
+        # The token written here is consumed by that separate oneshot.
+      '';
+    };
+
+    # Declarative admin SSH-key registration. Moved out of
+    # forgejo.service preStart (HTTP listener not yet up during
+    # preStart → curl fails with HTTP 0). Gated on the admin marker,
+    # the bootstrap token, AND an HTTP-ready probe — see below.
+    systemd.services.forgejo-ssh-keys = lib.mkIf (cfg.admin.sshKeyFiles != []) {
+      description = "Declarative Forgejo admin SSH key registration";
+      after = ["forgejo.service"];
+      wants = ["forgejo.service"];
+      wantedBy = ["multi-user.target"];
+      path = [pkgs.curl pkgs.jq pkgs.coreutils];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        User = "forgejo";
+        Group = "forgejo";
+      };
+
+      script = ''
+        set -u
+
+        # Gate: wait (bounded) for admin marker, bootstrap token, AND
+        # the HTTP API to actually accept connections. `After=
+        # forgejo.service` only guarantees forgejo.service reached
+        # "active" — Type=simple services declare active as soon as
+        # ExecStart spawns, which happens before Forgejo has finished
+        # binding its HTTP socket.
+        waited=0
+        while [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ] \
+           || [ ! -f ${cfg.dataDir}/.nixfleet-bootstrap-token ] \
+           || ! curl -sf -o /dev/null "http://127.0.0.1:${toString cfg.http.port}/api/v1/version"; do
+          if [ $waited -ge 60 ]; then
+            echo "forge-ssh-keys: marker/token/HTTP not ready after 60s, aborting" >&2
+            exit 0
           fi
-        ''}
+          sleep 1
+          waited=$((waited + 1))
+        done
+
+        IFS=: read -r admin_user _ _ < ${cfg.admin.userFile}
+        token=$(cat ${cfg.dataDir}/.nixfleet-bootstrap-token)
+
+        ${lib.concatMapStringsSep "\n" (keyFile: ''
+            if [ -r ${keyFile} ]; then
+              key_content="$(cat ${keyFile})"
+              if [ -n "$key_content" ]; then
+                echo "forge-ssh-keys: registering ${keyFile} for $admin_user" >&2
+                # POST /api/v1/admin/users/<name>/keys — 201 Created on
+                # success, 422 on duplicate fingerprint. Both treated as
+                # "already in good state."
+                body=$(jq -nc \
+                  --arg title "nixfleet-bootstrap-$(basename ${keyFile} .pub)" \
+                  --arg key "$key_content" \
+                  '{title: $title, key: $key}')
+                status=$(curl -s -o /dev/null -w '%{http_code}' \
+                  -H "Authorization: token $token" \
+                  -H "Content-Type: application/json" \
+                  -d "$body" \
+                  "http://127.0.0.1:${toString cfg.http.port}/api/v1/admin/users/$admin_user/keys") || status=0
+                case "$status" in
+                  201|422) echo "forge-ssh-keys: ${keyFile} -> HTTP $status (ok)" >&2 ;;
+                  *) echo "forge-ssh-keys: ${keyFile} -> HTTP $status (failed)" >&2 ;;
+                esac
+              fi
+            else
+              echo "forge-ssh-keys: ${keyFile} not readable, skipping" >&2
+            fi
+          '')
+          cfg.admin.sshKeyFiles}
       '';
     };
 
     # Declarative repository pre-creation. Runs after forgejo.service is
-    # active, gated on the admin-created marker and the bootstrap token.
+    # active, gated on the admin-created marker, the bootstrap token,
+    # AND the HTTP API readiness probe (same reason as ssh-keys above).
     # Uses the Forgejo HTTP API (`admin repo create` CLI subcommand
     # does not exist on LTS 11).
     #
@@ -168,13 +210,13 @@ in {
       script = ''
         set -u
 
-        # Gate: wait (bounded) for the admin-created marker AND the
-        # bootstrap token. Both are written by forgejo.service preStart.
+        # Gate: admin marker + bootstrap token + HTTP API ready.
         waited=0
         while [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ] \
-           || [ ! -f ${cfg.dataDir}/.nixfleet-bootstrap-token ]; do
+           || [ ! -f ${cfg.dataDir}/.nixfleet-bootstrap-token ] \
+           || ! curl -sf -o /dev/null "http://127.0.0.1:${toString cfg.http.port}/api/v1/version"; do
           if [ $waited -ge 60 ]; then
-            echo "forge-repositories: admin marker or token missing after 60s, aborting" >&2
+            echo "forge-repositories: marker/token/HTTP not ready after 60s, aborting" >&2
             exit 0
           fi
           sleep 1
