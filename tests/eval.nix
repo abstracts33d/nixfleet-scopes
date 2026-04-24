@@ -165,6 +165,20 @@
         };
       }
     ];
+    forge-admin-ssh-keys = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/forge")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.forge = {
+          enable = true;
+          domain = "git.test.internal";
+          admin = {
+            userFile = "/run/agenix/forge-admin";
+            sshKeyFiles = ["/run/agenix/operators/s33d-forgejo-sshkey"];
+          };
+        };
+      }
+    ];
     ci-runner-default = mkStandaloneSystem [
       (scopesPath + "/modules/scopes/ci-runner")
       (scopesPath + "/modules/scopes/impermanence")
@@ -316,6 +330,9 @@
     (standalone.tpm-keyslot-enabled.config.security.tpm2.enable == true)
     (standalone.forge-default.config.nixfleet.forge.enable == false)
     (standalone.forge-enabled.config.services.forgejo.enable == true)
+    # Forge declarative admin SSH key registration
+    (standalone.forge-admin-ssh-keys.config.nixfleet.forge.admin.sshKeyFiles != [])
+    (standalone.forge-enabled.config.nixfleet.forge.admin.sshKeyFiles == [])
     (standalone.ci-runner-default.config.nixfleet.ciRunner.forgejoActions.enable == false)
     (standalone.ci-runner-forgejo.config.services.gitea-actions-runner.instances.nixfleet.enable == true)
     (standalone.reverse-proxy-default.config.nixfleet.reverseProxy.enable == false)

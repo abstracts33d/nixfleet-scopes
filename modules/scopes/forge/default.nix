@@ -55,9 +55,12 @@ in {
       };
     };
 
-    # Optional bootstrap admin creation on first start.
+    # Optional bootstrap admin creation on first start, plus declarative
+    # SSH-key registration on every start (idempotent — Forgejo dedupes
+    # by fingerprint).
     systemd.services.forgejo = lib.mkIf (cfg.admin.userFile != null) {
       preStart = lib.mkAfter ''
+        admin_user=""
         if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
           if [ -r ${cfg.admin.userFile} ]; then
             IFS=: read -r admin_user admin_email admin_pass < ${cfg.admin.userFile}
@@ -69,6 +72,36 @@ in {
             touch ${cfg.dataDir}/.nixfleet-admin-created
           fi
         fi
+
+        ${lib.optionalString (cfg.admin.sshKeyFiles != []) ''
+          # Register declared SSH keys on the admin account. Re-read the
+          # admin username from userFile in case the admin was created on
+          # a previous run (marker already existed).
+          if [ -z "$admin_user" ] && [ -r ${cfg.admin.userFile} ]; then
+            IFS=: read -r admin_user _ _ < ${cfg.admin.userFile}
+          fi
+          if [ -n "$admin_user" ]; then
+            ${lib.concatMapStringsSep "\n" (keyFile: ''
+              if [ -r ${keyFile} ]; then
+                key_content="$(cat ${keyFile})"
+                if [ -n "$key_content" ]; then
+                  echo "forge: registering SSH key ${keyFile} for $admin_user" >&2
+                  # add-ssh-key is idempotent on the Forgejo side (fingerprint
+                  # dedupe). Errors are non-fatal to avoid blocking service start.
+                  ${pkgs.forgejo}/bin/forgejo admin user add-ssh-key \
+                    --username "$admin_user" \
+                    --key "$key_content" \
+                    || echo "forge: add-ssh-key failed for ${keyFile} (continuing)" >&2
+                fi
+              else
+                echo "forge: SSH key file ${keyFile} not readable, skipping" >&2
+              fi
+            '')
+            cfg.admin.sshKeyFiles}
+          else
+            echo "forge: admin user unknown, skipping sshKeyFiles registration" >&2
+          fi
+        ''}
       '';
     };
 
