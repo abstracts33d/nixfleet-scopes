@@ -55,19 +55,52 @@ in {
         };
       };
 
-      # Give the runner (and its subprocess shells) access to Nix and
-      # every tool installed via environment.systemPackages. Without
-      # this, `runs-on: native` workflows that invoke `nix`, `git`,
-      # `jq`, `attic`, etc. fail with "command not found" — systemd
-      # defaults to a minimal PATH that only contains the runner's
-      # own binary directory.
+      # Runner environment — two things:
       #
-      #   /run/wrappers/bin                   — setuid wrappers
-      #   /nix/var/nix/profiles/default/bin   — multi-user Nix default profile
-      #   /run/current-system/sw/bin          — everything in environment.systemPackages
-      systemd.services.gitea-runner-nixfleet.serviceConfig.Environment = [
-        "PATH=/run/wrappers/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
-      ];
+      # 1. Give the runner (and its subprocess shells) access to Nix and
+      #    the standard toolchain every `runs-on: native` workflow
+      #    expects. Without this, jobs fail with "command not found".
+      #
+      #    Uses NixOS's `.path` attribute — additive, merges the listed
+      #    packages into PATH without touching the rest of the env.
+      #    (The earlier `serviceConfig.Environment = [ "PATH=..." ]`
+      #    approach REPLACED the entire env — stripped HOME,
+      #    LOCALE_ARCHIVE, TZDIR etc. and broke the runner at activation.)
+      #
+      #    Consumers that need extras (attic-client, a TPM-sign wrapper,
+      #    etc.) extend this list from their own host config:
+      #
+      #        systemd.services.gitea-runner-nixfleet.path = [ inputs.attic... ];
+      #
+      # 2. Order the runner after forgejo.service when the runner points
+      #    at a local Forgejo instance. Avoids a race on rebuild where
+      #    both services restart simultaneously, runner boots before
+      #    forgejo accepts connections, and exits 1. systemd auto-retries
+      #    and succeeds ~2s later, but the visible exit status on
+      #    nixos-rebuild looks like a failure.
+      systemd.services.gitea-runner-nixfleet =
+        {
+          path = with pkgs; [
+            config.nix.package
+            bash
+            coreutils
+            findutils
+            gnugrep
+            gnused
+            gawk
+            gnutar
+            gzip
+            git
+            jq
+            curl
+            openssl
+          ];
+        }
+        // lib.optionalAttrs (lib.hasPrefix "http://localhost" cfg.forgejoActions.instanceUrl
+          || lib.hasPrefix "http://127.0.0.1" cfg.forgejoActions.instanceUrl) {
+          after = ["forgejo.service"];
+          wants = ["forgejo.service"];
+        };
 
       environment.persistence."/persist".directories =
         lib.mkIf (config.nixfleet.impermanence.enable or false)
