@@ -71,6 +71,11 @@ in {
       signWrapper
     ];
 
+    # Expose the built wrapper so consumers can reference the derivation
+    # directly from other modules (e.g. a CI runner on the same host
+    # that needs `tpm-sign` in its unit PATH). Read-only — see options.
+    nixfleet.tpmKeyslot.signWrapperPackage = signWrapper;
+
     systemd.services.nixfleet-tpm-keyslot-provision = {
       description = "Provision TPM-backed ${cfg.algorithm} keyslot at ${cfg.handle}";
       wantedBy = ["multi-user.target"];
