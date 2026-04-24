@@ -56,30 +56,31 @@ in {
     };
 
     # Optional bootstrap admin creation on first start.
-    systemd.services.forgejo = lib.mkMerge [
-      (lib.mkIf (cfg.admin.userFile != null) {
-        preStart = lib.mkAfter ''
-          if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
-            if [ -r ${cfg.admin.userFile} ]; then
-              IFS=: read -r admin_user admin_email admin_pass < ${cfg.admin.userFile}
-              ${pkgs.forgejo}/bin/forgejo admin user create \
-                --admin \
-                --username "$admin_user" \
-                --email "$admin_email" \
-                --password "$admin_pass" || true
-              touch ${cfg.dataDir}/.nixfleet-admin-created
-            fi
+    systemd.services.forgejo = lib.mkIf (cfg.admin.userFile != null) {
+      preStart = lib.mkAfter ''
+        if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
+          if [ -r ${cfg.admin.userFile} ]; then
+            IFS=: read -r admin_user admin_email admin_pass < ${cfg.admin.userFile}
+            ${pkgs.forgejo}/bin/forgejo admin user create \
+              --admin \
+              --username "$admin_user" \
+              --email "$admin_email" \
+              --password "$admin_pass" || true
+            touch ${cfg.dataDir}/.nixfleet-admin-created
           fi
-        '';
-      })
-      # The forgejo service runs as an unprivileged user; grant the bind
-      # capability when SSH_PORT < 1024 so the integrated SSH server can
-      # listen on a privileged port.
-      (lib.mkIf (cfg.ssh.enable && cfg.ssh.port < 1024) {
-        serviceConfig.AmbientCapabilities = ["CAP_NET_BIND_SERVICE"];
-        serviceConfig.CapabilityBoundingSet = ["CAP_NET_BIND_SERVICE"];
-      })
-    ];
+        fi
+      '';
+    };
+
+    # Forgejo's integrated SSH server binds cfg.ssh.port as the
+    # unprivileged `forgejo` user. Ports <1024 are privileged by default.
+    # The NixOS forgejo module sets NoNewPrivileges=true, which prevents
+    # AmbientCapabilities=CAP_NET_BIND_SERVICE from taking effect at exec
+    # time. Lower the unprivileged-port-start sysctl instead so any
+    # user-space process can bind cfg.ssh.port without needing caps.
+    boot.kernel.sysctl = lib.mkIf (cfg.ssh.enable && cfg.ssh.port < 1024) {
+      "net.ipv4.ip_unprivileged_port_start" = cfg.ssh.port;
+    };
 
     environment.persistence."/persist".directories = lib.mkIf (config.nixfleet.impermanence.enable or false) [
       {
