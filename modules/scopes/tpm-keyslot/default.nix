@@ -45,16 +45,49 @@
       cfg.algorithm
     };
 
+  # Parse tpm2_sign's TPMT_SIGNATURE binary output into raw 64-byte
+  # R‖S per CONTRACTS.md §II #1. For ECDSA P-256 with SHA-256 the
+  # layout is fixed:
+  #
+  #   offset  bytes    field
+  #   0       2        sigAlg            (0x0018 ECDSA)
+  #   2       2        hash alg          (0x000B SHA-256)
+  #   4       2        signatureR.size   (0x0020 = 32)
+  #   6       32       signatureR bytes
+  #   38      2        signatureS.size   (0x0020 = 32)
+  #   40      32       signatureS bytes
+  #
+  # Total 72 bytes. We emit bytes 6..38 (R) + bytes 40..72 (S) — the
+  # 64-byte raw concatenation the contract requires.
+  #
+  # For ed25519 the struct shape differs (the full 64-byte sig lives
+  # as a single TPM2B_ECC_PARAMETER), but the current deployment uses
+  # ecdsa-p256 exclusively; ed25519 extraction can be added when the
+  # algorithm is actually exercised.
+  extractRawSig = pkgs.writeShellScript "tpm-extract-raw-sig" ''
+    set -euo pipefail
+    in="$1"
+    ${pkgs.coreutils}/bin/dd if="$in" bs=1 skip=6 count=32 status=none
+    ${pkgs.coreutils}/bin/dd if="$in" bs=1 skip=40 count=32 status=none
+  '';
+
   signWrapper = pkgs.writeShellApplication {
     name = cfg.signWrapperName;
-    runtimeInputs = [pkgs.tpm2-tools];
+    runtimeInputs = [pkgs.tpm2-tools pkgs.coreutils];
     text = ''
       set -euo pipefail
       if [ $# -ne 1 ]; then
         echo "usage: ${cfg.signWrapperName} <file>" >&2
         exit 2
       fi
-      tpm2_sign -c ${cfg.handle} ${algo.tpmSignHashArg} -o - "$1"
+
+      # tpm2_sign's `-o -` silently produces empty output on this
+      # tpm2-tools version (likely interprets `-` as a literal path
+      # rather than stdout). Write to a real tempfile, then extract.
+      tmpsig="$(mktemp)"
+      trap 'rm -f "$tmpsig"' EXIT
+      tpm2_sign -c ${cfg.handle} ${algo.tpmSignHashArg} -o "$tmpsig" "$1"
+      ${extractRawSig} "$tmpsig"
     '';
   };
 in {
