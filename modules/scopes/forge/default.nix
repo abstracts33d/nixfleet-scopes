@@ -80,5 +80,14 @@ in {
         mode = "0750";
       }
     ];
+
+    # forgejo-secrets.service's systemd sandbox bind-mounts stateDir/custom
+    # read-write into its namespace. On a fresh stateDir (first boot on an
+    # impermanent host, or a bare install), the subdirectory doesn't exist
+    # yet and the namespace setup fails with status=226/NAMESPACE. Pre-create
+    # it via tmpfiles so the sandbox has something to bind.
+    systemd.tmpfiles.rules = [
+      "d ${cfg.dataDir}/custom 0750 forgejo forgejo - -"
+    ];
   };
 }
