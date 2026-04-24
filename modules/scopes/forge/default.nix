@@ -56,21 +56,30 @@ in {
     };
 
     # Optional bootstrap admin creation on first start.
-    systemd.services.forgejo = lib.mkIf (cfg.admin.userFile != null) {
-      preStart = lib.mkAfter ''
-        if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
-          if [ -r ${cfg.admin.userFile} ]; then
-            IFS=: read -r admin_user admin_email admin_pass < ${cfg.admin.userFile}
-            ${pkgs.forgejo}/bin/forgejo admin user create \
-              --admin \
-              --username "$admin_user" \
-              --email "$admin_email" \
-              --password "$admin_pass" || true
-            touch ${cfg.dataDir}/.nixfleet-admin-created
+    systemd.services.forgejo = lib.mkMerge [
+      (lib.mkIf (cfg.admin.userFile != null) {
+        preStart = lib.mkAfter ''
+          if [ ! -f ${cfg.dataDir}/.nixfleet-admin-created ]; then
+            if [ -r ${cfg.admin.userFile} ]; then
+              IFS=: read -r admin_user admin_email admin_pass < ${cfg.admin.userFile}
+              ${pkgs.forgejo}/bin/forgejo admin user create \
+                --admin \
+                --username "$admin_user" \
+                --email "$admin_email" \
+                --password "$admin_pass" || true
+              touch ${cfg.dataDir}/.nixfleet-admin-created
+            fi
           fi
-        fi
-      '';
-    };
+        '';
+      })
+      # The forgejo service runs as an unprivileged user; grant the bind
+      # capability when SSH_PORT < 1024 so the integrated SSH server can
+      # listen on a privileged port.
+      (lib.mkIf (cfg.ssh.enable && cfg.ssh.port < 1024) {
+        serviceConfig.AmbientCapabilities = ["CAP_NET_BIND_SERVICE"];
+        serviceConfig.CapabilityBoundingSet = ["CAP_NET_BIND_SERVICE"];
+      })
+    ];
 
     environment.persistence."/persist".directories = lib.mkIf (config.nixfleet.impermanence.enable or false) [
       {
