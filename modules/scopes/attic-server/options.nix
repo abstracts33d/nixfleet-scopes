@@ -5,6 +5,17 @@ in {
   options.nixfleet.atticServer = {
     enable = lib.mkEnableOption "Attic binary cache server";
 
+    package = lib.mkOption {
+      type = types.package;
+      description = ''
+        atticd package. Pass e.g.
+        `inputs.attic.packages.''${system}.attic-server` from the
+        consumer flake — the scope cannot reference the attic flake
+        input directly because the scope's module function receives
+        the consumer's specialArgs, not the scope flake's own inputs.
+      '';
+    };
+
     domain = lib.mkOption {
       type = types.str;
       example = "cache.lab.internal";

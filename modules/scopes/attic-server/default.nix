@@ -1,10 +1,11 @@
 # Attic binary cache server scope.
-# Uses the atticd package from the scopes flake's attic input.
+# atticd is supplied by the consumer via nixfleet.atticServer.package —
+# typically `inputs.attic.packages.''${system}.attic-server` where
+# `attic` is a flake input of the consumer.
 {
   config,
   lib,
   pkgs,
-  inputs,
   ...
 }: let
   cfg = config.nixfleet.atticServer;
@@ -43,8 +44,6 @@
     avg-size = 65536
     max-size = 262144
   '';
-
-  atticServer = inputs.attic.packages.${pkgs.stdenv.hostPlatform.system}.attic-server;
 in {
   imports = [./options.nix];
 
@@ -57,7 +56,7 @@ in {
 
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${atticServer}/bin/atticd --config ${serverToml}";
+        ExecStart = "${cfg.package}/bin/atticd --config ${serverToml}";
         Restart = "always";
         RestartSec = 10;
         StateDirectory = "nixfleet-attic";
@@ -88,7 +87,7 @@ in {
       description = "NixFleet Attic Garbage Collection";
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${atticServer}/bin/atticd --config ${serverToml} --mode garbage-collector-once";
+        ExecStart = "${cfg.package}/bin/atticd --config ${serverToml} --mode garbage-collector-once";
         ReadWritePaths = ["/var/lib/nixfleet-attic"];
       };
     };
