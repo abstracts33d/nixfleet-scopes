@@ -32,6 +32,13 @@ in {
           SSH_PORT = cfg.ssh.port;
           SSH_LISTEN_HOST = cfg.ssh.listenHost;
           START_SSH_SERVER = cfg.ssh.enable;
+          # Override NixOS's default of service-user-as-SSH-username so
+          # clients can use `git@<host>` per the Forgejo/Gitea/GitHub/
+          # GitLab convention. Matches cfg.ssh.user (default "git").
+          # Not a system user — just a magic string Forgejo matches on
+          # incoming SSH auth.
+          BUILTIN_SSH_SERVER_USER = cfg.ssh.user;
+          SSH_USER = cfg.ssh.user;
           LANDING_PAGE = "login";
         };
 
