@@ -267,6 +267,12 @@ in {
       "net.ipv4.ip_unprivileged_port_start" = cfg.ssh.port;
     };
 
+    # Open the Forgejo SSH port in the system firewall when requested.
+    # Without this, git clients hit a TCP-level black hole: forgejo
+    # listens on *:<port>, but nftables silently drops SYNs from
+    # anything except loopback.
+    networking.firewall.allowedTCPPorts = lib.mkIf (cfg.ssh.enable && cfg.ssh.openFirewall) [cfg.ssh.port];
+
     environment.persistence."/persist".directories = lib.mkIf (config.nixfleet.impermanence.enable or false) [
       {
         directory = cfg.dataDir;
