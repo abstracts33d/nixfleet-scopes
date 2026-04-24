@@ -55,6 +55,37 @@ in {
         };
       };
 
+      # Give the runner (and its subprocess shells) access to Nix and
+      # the standard toolchain every `runs-on: native` workflow expects.
+      # Without this, jobs fail with "command not found" — systemd
+      # defaults to a minimal PATH that only contains the runner's
+      # own binary directory.
+      #
+      # Uses NixOS's `.path` attribute (additive — merges with the
+      # runner's default PATH without stripping HOME/LOCALE_ARCHIVE/
+      # TZDIR/etc that the runner itself needs).
+      #
+      # Consumers that need extras (e.g., attic-client, a TPM-sign
+      # wrapper, platform-specific signers) extend this list from
+      # their fleet/host config:
+      #
+      #     systemd.services.gitea-runner-nixfleet.path = [ inputs.attic... ];
+      systemd.services.gitea-runner-nixfleet.path = with pkgs; [
+        config.nix.package
+        bash
+        coreutils
+        findutils
+        gnugrep
+        gnused
+        gawk
+        gnutar
+        gzip
+        git
+        jq
+        curl
+        openssl
+      ];
+
       environment.persistence."/persist".directories =
         lib.mkIf (config.nixfleet.impermanence.enable or false)
         ["/var/lib/gitea-runner-nixfleet"];
