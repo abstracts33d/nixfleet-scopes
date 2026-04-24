@@ -52,6 +52,18 @@ in {
         default = "0.0.0.0";
         description = "Forgejo SSH bind address.";
       };
+      openFirewall = lib.mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Open the Forgejo SSH port in the system firewall. Defaults to
+          `true` — the natural use of this scope is to expose
+          `git push/clone` via SSH. Without this, incoming connections
+          are silently dropped (port listens but firewall rejects).
+          Set to `false` only if SSH is proxied through another
+          mechanism (bastion, Tailscale, etc.).
+        '';
+      };
     };
 
     actions = {
