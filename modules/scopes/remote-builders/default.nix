@@ -59,52 +59,71 @@ in {
       default = [];
       description = "Remote builders to delegate builds to.";
     };
+
+    trust.coordinatorPubkey = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "lab-cache:CoNk/...fH4=";
+      description = ''
+        Optional ed25519 public key (attic-format) the coordinator signs
+        closures with. When non-null, it is appended to
+        nix.settings.trusted-public-keys so this host trusts closures
+        fetched from the coordinator's binary cache. Consumed by the
+        v0.2 trust-root pinning (CONTRACTS.md §II #2).
+      '';
+    };
   };
 
-  config = lib.mkIf (cfg.enable && cfg.machines != []) (lib.mkMerge [
-    {
-      nix.distributedBuilds = true;
-
-      nix.buildMachines =
-        map (m: {
-          inherit (m) hostName systems sshUser maxJobs speedFactor;
-          sshKey = m.sshKeyFile;
-        })
-        cfg.machines;
-
-      programs.ssh.knownHosts =
-        lib.listToAttrs
-        (lib.filter (x: x.value.publicKey != null)
-          (map (m:
-            lib.nameValuePair m.hostName {
-              hostNames = [m.hostName];
-              publicKey = m.publicHostKey;
-            })
-          cfg.machines));
-    }
-
-    (lib.mkIf isDarwin {
-      # Write /etc/nix/machines as a real file (agenix paths only exist
-      # at runtime) and append builders config to nix.custom.conf.
-      # The core _darwin.nix writes the base nix.custom.conf (trusted-users,
-      # substituters) with cat > via mkBefore. We append with cat >> via
-      # mkAfter. environment.etc can't be used for /etc/nix/ - Determinate
-      # Nix owns that directory and nix-darwin refuses to overwrite real files.
-      system.activationScripts.postActivation.text = lib.mkAfter (let
-        machineLines =
-          lib.concatMapStringsSep "\n" (
-            m: "ssh://${m.sshUser}@${m.hostName} ${lib.concatStringsSep "," m.systems} ${m.sshKeyFile} ${toString m.maxJobs} ${toString m.speedFactor} - -"
-          )
-          cfg.machines;
-      in ''
-        cat > /etc/nix/machines <<'MACHINES'
-        ${machineLines}
-        MACHINES
-        cat >> /etc/nix/nix.custom.conf <<'NIX_BUILDERS'
-        builders = @/etc/nix/machines
-        builders-use-substitutes = true
-        NIX_BUILDERS
-      '');
+  config = lib.mkMerge [
+    (lib.mkIf (cfg.trust.coordinatorPubkey != null) {
+      nix.settings.trusted-public-keys = lib.mkAfter [cfg.trust.coordinatorPubkey];
     })
-  ]);
+
+    (lib.mkIf (cfg.enable && cfg.machines != []) (lib.mkMerge [
+      {
+        nix.distributedBuilds = true;
+
+        nix.buildMachines =
+          map (m: {
+            inherit (m) hostName systems sshUser maxJobs speedFactor;
+            sshKey = m.sshKeyFile;
+          })
+          cfg.machines;
+
+        programs.ssh.knownHosts =
+          lib.listToAttrs
+          (lib.filter (x: x.value.publicKey != null)
+            (map (m:
+              lib.nameValuePair m.hostName {
+                hostNames = [m.hostName];
+                publicKey = m.publicHostKey;
+              })
+            cfg.machines));
+      }
+
+      (lib.mkIf isDarwin {
+        # Write /etc/nix/machines as a real file (agenix paths only exist
+        # at runtime) and append builders config to nix.custom.conf.
+        # The core _darwin.nix writes the base nix.custom.conf (trusted-users,
+        # substituters) with cat > via mkBefore. We append with cat >> via
+        # mkAfter. environment.etc can't be used for /etc/nix/ - Determinate
+        # Nix owns that directory and nix-darwin refuses to overwrite real files.
+        system.activationScripts.postActivation.text = lib.mkAfter (let
+          machineLines =
+            lib.concatMapStringsSep "\n" (
+              m: "ssh://${m.sshUser}@${m.hostName} ${lib.concatStringsSep "," m.systems} ${m.sshKeyFile} ${toString m.maxJobs} ${toString m.speedFactor} - -"
+            )
+            cfg.machines;
+        in ''
+          cat > /etc/nix/machines <<'MACHINES'
+          ${machineLines}
+          MACHINES
+          cat >> /etc/nix/nix.custom.conf <<'NIX_BUILDERS'
+          builders = @/etc/nix/machines
+          builders-use-substitutes = true
+          NIX_BUILDERS
+        '');
+      })
+    ]))
+  ];
 }

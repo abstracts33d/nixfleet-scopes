@@ -98,6 +98,18 @@ in {
         example = "/run/secrets/restic-password";
         description = "Path to file containing the repository password.";
       };
+      serverScope = lib.mkOption {
+        type = types.enum ["none" "http-local" "https-tailnet"];
+        default = "none";
+        description = ''
+          Shape of the URL pointing at a nixfleet.backupServer scope
+          instance. Informational — consumers derive a suitable
+          repository value from this (e.g. `rest:http://127.0.0.1:8000/`
+          for "http-local" or `rest:https://restic.<domain>/` for
+          "https-tailnet"). "none" leaves the wiring entirely to the
+          consumer.
+        '';
+      };
     };
 
     borgbackup = {
