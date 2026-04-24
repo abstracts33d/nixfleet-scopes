@@ -7,19 +7,27 @@
   config,
   ...
 }: {
-  options.nixfleet.base = {
-    enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Install universal CLI tools on this host.";
-    };
-  };
+  imports = [
+    ./options.nix
+    ./compat.nix
+  ];
 
-  config = lib.mkIf config.nixfleet.base.enable {
-    environment.systemPackages = with pkgs; [
-      unixtools.ifconfig
-      unixtools.netstat
-      xdg-utils
-    ];
-  };
+  config = lib.mkMerge [
+    (lib.mkIf config.nixfleet.base.enable {
+      environment.systemPackages = with pkgs; [
+        unixtools.ifconfig
+        unixtools.netstat
+        xdg-utils
+        curl
+        wget
+        unzip
+      ];
+    })
+    (lib.mkIf (config.nixfleet.base.enable && config.nixfleet.base.terminfo.enable) {
+      environment.systemPackages = with pkgs; [
+        kitty.terminfo
+        alacritty.terminfo
+      ];
+    })
+  ];
 }

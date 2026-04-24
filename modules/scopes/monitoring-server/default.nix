@@ -48,11 +48,35 @@
               labels.severity = "critical";
               annotations.summary = "NixFleet control plane is unreachable";
             }
+          ]
+          ++ lib.optionals cfg.alerts.coordinator [
+            {
+              alert = "CoordinatorForgeDown";
+              expr = ''probe_success{service="forge"} == 0'';
+              "for" = "2m";
+              labels.severity = "critical";
+              annotations.summary = "Coordinator forge (Forgejo) is unreachable";
+            }
+            {
+              alert = "CoordinatorCacheDown";
+              expr = ''probe_success{service="cache"} == 0'';
+              "for" = "2m";
+              labels.severity = "critical";
+              annotations.summary = "Coordinator binary cache (attic) is unreachable";
+            }
+            {
+              alert = "CoordinatorCiRunnerDown";
+              expr = ''up{job="gitea-runner"} == 0'';
+              "for" = "5m";
+              labels.severity = "warning";
+              annotations.summary = "Coordinator CI runner is offline";
+            }
           ];
       }
     ];
   };
 in {
+  imports = [./blackbox.nix];
   options.nixfleet.monitoring.server = {
     enable = lib.mkEnableOption "Prometheus server with fleet defaults";
 
@@ -106,6 +130,12 @@ in {
         type = lib.types.bool;
         default = false;
         description = "Add ControlPlaneDown alert (requires a nixfleet-cp scrape job).";
+      };
+
+      coordinator = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Add coordinator alerts (forge/cache blackbox probes + CI runner up). Requires matching blackbox probes or scrape jobs.";
       };
 
       extraRuleFiles = lib.mkOption {

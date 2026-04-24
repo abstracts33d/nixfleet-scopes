@@ -17,7 +17,6 @@
     ../scopes/impermanence
     ../scopes/o11y
     ../scopes/generation-label
-    ../scopes/terminal-compat
     ../scopes/hardware
   ];
 
@@ -29,7 +28,6 @@
 
     nixfleet.o11y.metrics.enable = lib.mkDefault true;
     nixfleet.generationLabel.enable = lib.mkDefault true;
-    nixfleet.terminalCompat.enable = lib.mkDefault true;
 
     # Server posture: SSH-only, no graphical/audio/docker groups.
     nixfleet.operators.roleGroups = lib.mkDefault [];

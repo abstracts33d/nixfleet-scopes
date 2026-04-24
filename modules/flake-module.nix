@@ -50,9 +50,26 @@
     remote-builders = ./scopes/remote-builders;
     hardware = ./scopes/hardware;
     hardware-secure-boot = ./scopes/hardware/secure-boot.nix;
-    terminal-compat = ./scopes/terminal-compat;
     monitoring-server = ./scopes/monitoring-server;
     backupDarwin = ./scopes/backup/darwin.nix;
+    nix-index = ./scopes/nix-index;
+    nix-indexHm = ./scopes/nix-index/hm.nix;
+    nix-ld = ./scopes/nix-ld;
+    tailscale = ./scopes/tailscale;
+    tailscaleDarwin = ./scopes/tailscale/darwin.nix;
+    ssh-deployDarwin = ./scopes/ssh-deploy/darwin.nix;
+    samba-client = ./scopes/samba-client;
+    samba-clientDarwin = ./scopes/samba-client/darwin.nix;
+    syncthing = ./scopes/syncthing;
+    syncthingDarwin = ./scopes/syncthing/darwin.nix;
+    graphical-base = ./scopes/graphical-base;
+    tpm-keyslot = ./scopes/tpm-keyslot;
+    forge = ./scopes/forge;
+    attic-server = ./scopes/attic-server;
+    ci-runner = ./scopes/ci-runner;
+    reverse-proxy = ./scopes/reverse-proxy;
+    backup-server = ./scopes/backup-server;
+    coordinator = ./scopes/coordinator;
 
     platform = {
       nixos-base = ./platform/nixos-base.nix;
@@ -88,9 +105,21 @@
     remote-builders = ./scopes/remote-builders;
     hardware = ./scopes/hardware;
     hardware-secure-boot = ./scopes/hardware/secure-boot.nix;
-    terminal-compat = ./scopes/terminal-compat;
     monitoring-server = ./scopes/monitoring-server;
     platform-base = ./platform/nixos-base.nix;
+    nix-index = ./scopes/nix-index;
+    nix-ld = ./scopes/nix-ld;
+    tailscale = ./scopes/tailscale;
+    samba-client = ./scopes/samba-client;
+    syncthing = ./scopes/syncthing;
+    graphical-base = ./scopes/graphical-base;
+    tpm-keyslot = ./scopes/tpm-keyslot;
+    forge = ./scopes/forge;
+    attic-server = ./scopes/attic-server;
+    ci-runner = ./scopes/ci-runner;
+    reverse-proxy = ./scopes/reverse-proxy;
+    backup-server = ./scopes/backup-server;
+    coordinator = ./scopes/coordinator;
 
     role-server = ./roles/server.nix;
     role-workstation = ./roles/workstation.nix;
@@ -105,11 +134,21 @@
     backup = ./scopes/backup/darwin.nix;
     remote-builders = ./scopes/remote-builders;
     platform-base = ./platform/darwin-base.nix;
+    tailscale = ./scopes/tailscale/darwin.nix;
+    ssh-deploy = ./scopes/ssh-deploy/darwin.nix;
+    samba-client = ./scopes/samba-client/darwin.nix;
+    syncthing = ./scopes/syncthing/darwin.nix;
   };
 
   flake.homeManagerModules = {
     base = ./scopes/base/hm.nix;
     impermanence = ./scopes/impermanence/hm.nix;
+    nix-index = ./scopes/nix-index/hm.nix;
+  };
+
+  # Pure-function helpers consumers can import via `inputs.nixfleet-scopes.lib.*`.
+  flake.lib = {
+    waylandWrappers = import ./lib/wayland-wrappers.nix;
   };
 
   perSystem = {
