@@ -25,10 +25,9 @@ Reusable infrastructure scopes, roles, and disk templates for [NixFleet](https:/
   - `generation-label` - rich boot entry labels from flake metadata
   - `remote-builders` - cross-platform distributed build delegation
   - `hardware` - auto-imports hardware sub-modules (microcode, bluetooth, nvidia, wol, memory, legacy boot)
-  - `terminal-compat` - terminfo for modern terminals + headless essentials
 - **4 roles** (`modules/roles/`) - compose scopes with sensible defaults:
-  - `server` - headless: base, operators, firewall, secrets, monitoring, impermanence, o11y, generation-label, terminal-compat, hardware
-  - `workstation` - interactive: base, operators, firewall, secrets, home-manager, backup, impermanence, o11y, generation-label, terminal-compat, hardware
+  - `server` - headless: base, operators, firewall, secrets, monitoring, impermanence, o11y, generation-label, hardware
+  - `workstation` - interactive: base, operators, firewall, secrets, home-manager, backup, impermanence, o11y, generation-label, hardware
   - `endpoint` - locked-down: base, operators, secrets, impermanence
   - `microvm-guest` - minimal: base, operators, impermanence
 - **2 platform shims** (`modules/platform/`) - minimal common config for NixOS / Darwin

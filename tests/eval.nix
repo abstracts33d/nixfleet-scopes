@@ -108,7 +108,10 @@
     (roles.workstation.config.nixfleet.operators._primaryName == "testuser")
     (roles.server.config.nixfleet.operators._primaryName == "testuser")
 
-    # Terminal compat: enabled on server + workstation
+    # base.terminfo (new name): default on
+    (roles.server.config.nixfleet.base.terminfo.enable == true)
+    (roles.workstation.config.nixfleet.base.terminfo.enable == true)
+    # Renamed option shim: reading the legacy name still works
     (roles.server.config.nixfleet.terminalCompat.enable == true)
     (roles.workstation.config.nixfleet.terminalCompat.enable == true)
 

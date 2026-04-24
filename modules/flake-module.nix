@@ -50,7 +50,6 @@
     remote-builders = ./scopes/remote-builders;
     hardware = ./scopes/hardware;
     hardware-secure-boot = ./scopes/hardware/secure-boot.nix;
-    terminal-compat = ./scopes/terminal-compat;
     monitoring-server = ./scopes/monitoring-server;
     backupDarwin = ./scopes/backup/darwin.nix;
 
@@ -88,7 +87,6 @@
     remote-builders = ./scopes/remote-builders;
     hardware = ./scopes/hardware;
     hardware-secure-boot = ./scopes/hardware/secure-boot.nix;
-    terminal-compat = ./scopes/terminal-compat;
     monitoring-server = ./scopes/monitoring-server;
     platform-base = ./platform/nixos-base.nix;
 
