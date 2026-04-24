@@ -22,6 +22,12 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Attic binary cache — consumed by the attic-server scope.
+    attic = {
+      url = "github:booxter/attic/newer-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs:
