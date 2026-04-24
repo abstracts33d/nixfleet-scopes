@@ -64,6 +64,155 @@
       (scopesPath + "/modules/scopes/impermanence")
       {nixfleet.monitoring.server.enable = false;}
     ];
+
+    # A.2 extracted scopes — default eval (inert) + sample enabled config.
+    # Scopes that write environment.persistence paths need impermanence
+    # imported alongside (the common deployment shape).
+    tailscale-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/tailscale")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    tailscale-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/tailscale")
+      (scopesPath + "/modules/scopes/impermanence")
+      {nixfleet.tailscale.enable = true;}
+    ];
+    samba-client-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/samba-client")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    samba-client-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/samba-client")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.sambaClient = {
+          enable = true;
+          mounts = [
+            {
+              share = "media";
+              mountpoint = "/home/test/shared/media";
+              server = "203.0.113.10";
+              readOnly = true;
+            }
+          ];
+        };
+      }
+    ];
+    syncthing-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/syncthing")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    # nix-index is not covered here — the scope references options
+    # declared by the external nix-index-database module which isn't a
+    # flake input of nixfleet-scopes. Consumer tests (e.g. in fleet)
+    # cover it alongside that module.
+    nix-ld-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/nix-ld")
+    ];
+    nix-ld-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/nix-ld")
+      {nixfleet.nixLd.enable = true;}
+    ];
+    graphical-base-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/graphical-base")
+    ];
+    graphical-base-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/graphical-base")
+      {nixfleet.graphical.variant = "gnome";}
+    ];
+    monitoring-blackbox-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/monitoring-server")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.monitoring.server = {
+          enable = true;
+          blackbox = {
+            enable = true;
+            probes = [
+              {
+                name = "forge";
+                target = "http://localhost:3001";
+                module = "http_2xx";
+              }
+            ];
+          };
+          alerts.coordinator = true;
+        };
+      }
+    ];
+
+    # A.3 coordinator scopes — default eval (inert) + sample enabled config.
+    tpm-keyslot-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/tpm-keyslot")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    tpm-keyslot-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/tpm-keyslot")
+      (scopesPath + "/modules/scopes/impermanence")
+      {nixfleet.tpmKeyslot.enable = true;}
+    ];
+    forge-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/forge")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    forge-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/forge")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.forge = {
+          enable = true;
+          domain = "git.test.internal";
+        };
+      }
+    ];
+    ci-runner-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/ci-runner")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    ci-runner-forgejo = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/ci-runner")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.ciRunner.forgejoActions = {
+          enable = true;
+          registrationTokenFile = "/run/secrets/fake";
+        };
+      }
+    ];
+    reverse-proxy-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/reverse-proxy")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    reverse-proxy-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/reverse-proxy")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.reverseProxy = {
+          enable = true;
+          sites = [
+            {
+              host = "git.test.internal";
+              upstream = "localhost:3001";
+            }
+          ];
+        };
+      }
+    ];
+    backup-server-default = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/backup-server")
+      (scopesPath + "/modules/scopes/impermanence")
+    ];
+    backup-server-enabled = mkStandaloneSystem [
+      (scopesPath + "/modules/scopes/backup-server")
+      (scopesPath + "/modules/scopes/impermanence")
+      {
+        nixfleet.backupServer = {
+          enable = true;
+          domain = "restic.test.internal";
+          prune.enable = false;
+        };
+      }
+    ];
   };
 
   # Force a few representative options per role to exercise the eval path.
@@ -148,6 +297,31 @@
     (standalone.compliance.config.nixfleet.compliance.enable == false)
     (standalone.remote-builders.config.nixfleet.distributedBuilds.enable == false)
     (standalone.monitoring-server.config.nixfleet.monitoring.server.enable == false)
+
+    # A.2 scopes default + enabled
+    (standalone.tailscale-default.config.nixfleet.tailscale.enable == false)
+    (standalone.tailscale-enabled.config.services.tailscale.enable == true)
+    (standalone.samba-client-default.config.nixfleet.sambaClient.enable == false)
+    (standalone.samba-client-enabled.config.nixfleet.sambaClient.mounts != [])
+    (standalone.syncthing-default.config.nixfleet.syncthing.enable == false)
+    (standalone.nix-ld-default.config.nixfleet.nixLd.enable == false)
+    (standalone.nix-ld-enabled.config.programs.nix-ld.enable == true)
+    (standalone.graphical-base-default.config.nixfleet.graphical.enable == false)
+    (standalone.graphical-base-enabled.config.nixfleet.graphical.enable == true)
+    (standalone.graphical-base-enabled.config.nixfleet.graphical.protocol == "wayland")
+    (standalone.monitoring-blackbox-enabled.config.services.prometheus.exporters.blackbox.enable == true)
+
+    # A.3 coordinator scopes default + enabled
+    (standalone.tpm-keyslot-default.config.nixfleet.tpmKeyslot.enable == false)
+    (standalone.tpm-keyslot-enabled.config.security.tpm2.enable == true)
+    (standalone.forge-default.config.nixfleet.forge.enable == false)
+    (standalone.forge-enabled.config.services.forgejo.enable == true)
+    (standalone.ci-runner-default.config.nixfleet.ciRunner.forgejoActions.enable == false)
+    (standalone.ci-runner-forgejo.config.services.gitea-actions-runner.instances.nixfleet.enable == true)
+    (standalone.reverse-proxy-default.config.nixfleet.reverseProxy.enable == false)
+    (standalone.reverse-proxy-enabled.config.services.caddy.enable == true)
+    (standalone.backup-server-default.config.nixfleet.backupServer.enable == false)
+    (standalone.backup-server-enabled.config.systemd.services.restic-rest-server.enable or true)
   ];
 
   allPass = lib.all (x: x == true) checks;
